@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Courier IMAP startup file
+#
+# chkconfig: - 98 98
+# description: Starts and stops the Courier IMAP server.
+#
+# pidfile: /var/run/courier.pid
+# 
+# 12/20/2002
+
+. /etc/rc.d/init.d/functions
+
+RETVAL=0
+
+case "$1" in
+  start)
+        echo -n "Starting courier: "
+        daemon /usr/lib/courier-imap/libexec/imapd.rc start
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && touch /var/lock/subsys/imapd
+        echo
+        ;;
+  stop)
+        echo -n "Shutting down courier: "
+        killproc couriertcpd
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/imapd
+        echo
+        ;;
+  restart)
+        $0 stop
+        $0 start
+        RETVAL=$?
+        ;;
+  status)
+        status courier
+        RETVAL=$?
+        ;;
+  *)
+        echo "Usage: courier {start|stop|restart|status}"
+        exit 1
+esac
+
+exit $RETVAL

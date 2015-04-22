@@ -1,0 +1,57 @@
+diff -audr vcheckquota.c vcheckquota.c
+--- vcheckquota.c	Fri May 10 17:00:37 2002
++++ vcheckquota.c	Fri Sep  9 12:11:43 2005
+@@ -33,10 +33,10 @@
+ const char program[] = "vcheckquota";
+ const int msg_show_pid = 0;
+ const char cli_help_prefix[] = "vmailmgr quota enforcement program\n";
+-const char cli_help_suffix[] = "
+-Warning: the soft-message is linked into the users maildir once for each
+-message that is received while the account is over its soft quota.  This may
+-result in multiple warning messages.\n";
++const char cli_help_suffix[] = "\n"
++"Warning: the soft-message is linked into the users maildir once for each\n"
++"message that is received while the account is over its soft quota.  This may\n"
++"result in multiple warning messages.\n";
+ const char cli_args_usage[] = "";
+ const int cli_args_min = 0;
+ const int cli_args_max = 0;
+@@ -56,16 +56,21 @@
+ /* ========================================================================= */
+ /* Determine the size of a maildir, recursively */
+ static struct stat st;
+-static void wrap_stat(const char* path)
++static int wrap_stat(const char* path)
+ {
+-  if (stat(path, &st) == -1)
+-    die3sys(111, "Cannot stat '", path, "'");
++  if (stat(path, &st) == -1) {
++    if (errno == ENOENT)
++      return -1;
++    else
++      die3sys(111, "Cannot stat '", path, "'");
++  }
++  return 0;
+ }
+ 
+ static unsigned long stat_size(const char* path)
+ {
+-  wrap_stat(path);
+-  return st.st_blocks * 512;
++  if (!wrap_stat(path)) return st.st_blocks * 512;
++  return 0;
+ }
+ 
+ static void scan_dir(const char* path,
+@@ -77,8 +82,10 @@
+   DIR* dir;
+   direntry* entry;
+   
+-  if ((dir = opendir(path)) == 0)
++  if ((dir = opendir(path)) == 0) {
++    if (errno == ENOENT) return;
+     die3sys(111, "Could not open directory '", path, "'");
++  }
+ 
+   while((entry = readdir(dir)) != 0) {
+     const char* name = entry->d_name;

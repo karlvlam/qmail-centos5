@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Tcpserver & VMailMgrd startup file
+#
+# chkconfig: - 99 99
+# description: Starts and stops tcpserver and vmailmgrd.
+#
+# pidfile: /var/run/tcpserver.pid
+# 
+# 12/20/2002
+
+. /etc/rc.d/init.d/functions
+
+RETVAL=0
+
+case "$1" in
+  start)
+        echo -n "Starting tpcserver: "
+        daemon /usr/local/bin/runmail
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && touch /var/lock/subsys/tcpserver
+        echo
+        ;;
+  stop)
+        echo -n "Shutting down tcpserver: "
+        killproc tcpserver
+	killall unixserver
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/tcpserver
+        echo
+        ;;
+  restart)
+        $0 stop
+        $0 start
+        RETVAL=$?
+        ;;
+  status)
+        status tcpserver
+        RETVAL=$?
+        ;;
+  *)
+        echo "Usage: tcpserver {start|stop|restart|status}"
+        exit 1
+esac
+
+exit $RETVAL

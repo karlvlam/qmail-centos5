@@ -1,0 +1,798 @@
+#############################
+# Qmail guide on CentOS 5.2 #
+#############################
+
+From : http://megaz.arbuz.com/?p=qmail_howto
+Modified by : http://www.karl-lam.net
+
+First thanks for Nasim Mansurov's guide on his website http://megaz.arbuz.com/?p=qmail_howto
+I made some changes to install on CentOS 5.1.
+If got any problems, don't ask me, go through http://megaz.arbuz.com/?p=qmail_howto
+
+
+#######################
+# [1] remove sendmail #
+#######################
+
+########################
+# [2] Installing Qmail #
+########################
+
+create directories and users/groups:
+-------------------------------------------------------
+# mkdir /var/qmail
+# cd /usr/local/src/netqmail-1.05/netqmail-1.05
+# groupadd -g 200 nofiles
+# groupadd -g 201 qmail
+# useradd -u 200 -g nofiles -d /var/qmail/alias alias
+# useradd -u 201 -g nofiles -d /var/qmail qmaild
+# useradd -u 202 -g nofiles -d /var/qmail qmaill
+# useradd -u 203 -g nofiles -d /var/qmail qmailp
+# useradd -u 204 -g qmail -d /var/qmail qmailq
+# useradd -u 205 -g qmail -d /var/qmail qmailr
+# useradd -u 206 -g qmail -d /var/qmail qmails
+-------------------------------------------------------
+
+make and install
+
+-------------------------------------------------------
+# make
+# make setup check
+-------------------------------------------------------
+
+########################################
+# [3] Qmail post-install configuration #
+########################################
+
+link to support sendmail's program:
+------------------------------------------------------
+# ln -s /var/qmail/bin/sendmail /usr/sbin/sendmail
+# ln -s /var/qmail/bin/sendmail /usr/lib/sendmail
+------------------------------------------------------
+
+setting control files: (Of course, you have replace the occurence of yourserver.com with your qualified MX host)
+------------------------------------------------------
+# cd /var/qmail/control
+# echo yourserver.com > defaultdomain
+# echo localhost > locals
+# echo yourserver.com > me
+# echo yourserver.com > plusdomain
+# echo localhost > rcpthosts
+# echo yourserver.com >> rcpthosts
+# echo checkvpw > checkpassword
+# echo 1 > mfcheck
+# echo 20 > tarpitcount
+# echo 5 > tarpitdelay
+------------------------------------------------------
+
+create various messages such as bounce and double bounce messages:
+------------------------------------------------------
+# echo @nowhere.edu > badmailfrom
+# echo @nowhere.edu > badrcptto
+# echo mailer-daemon > bouncefrom
+# echo yourserver.com > bouncehost
+# echo 50000 > bouncemaxbytes
+# echo text > bouncemessage
+# echo failure notice > bouncesubject
+# cp bouncehost doublebouncehost
+# cp bouncemessage doublebouncemessage
+# cp bouncesubject doublebouncesubject
+------------------------------------------------------
+
+edit two files - bouncemessage and doublebouncemessage:
+------------------------------------------------------
+# vi bouncemessage
+# vi doublebouncemessage
+------------------------------------------------------
+
+set up a qmail startup script:
+------------------------------------------------------
+# vi /var/qmail/rc
+------------------------------------------------------
+======================================================
+#!/bin/sh
+PATH="/var/qmail/bin:/usr/local/bin"
+export PATH
+cd /
+qmail-start ./Maildir | setuidgid qmaill \
+multilog t n50 s1000000 \
+/var/qmail/logs/qmail &
+======================================================
+
+making the startup script executable and creating qmail log directories:
+------------------------------------------------------
+# chmod 755 /var/qmail/rc
+# mkdir /var/qmail/logs
+# mkdir /var/qmail/logs/qmail
+# chown -R qmaill:qmail /var/qmail/logs
+------------------------------------------------------
+
+#############################
+# [4] Installing Ucspi-UNIX #
+#############################
+------------------------------------------------------
+# cd /usr/local/src
+# tar zxf ucspi-unix-0.36.tar.gz
+# cd ucspi-unix-0.36
+# make
+# ./installer
+------------------------------------------------------
+
+<Alert>
+If ucspi-unix fails during compilation with an error in env.c (sysdeps.h not found) you need to get "bglibs" and install it.
+------------------------------------------------------
+# tar zxvf bglibs-1.104.tar.gz.tar
+# cd bglibs-1.104
+# make
+# make install
+------------------------------------------------------
+</Alert>
+
+<Alert>
+In some cases the installer gives an error "installer error: Could not change directory to '/usr/local/man'". If you got this error just type "mkdir /usr/local/man" and then "./installer" again.
+</Alert>
+
+
+############################
+# [5] Installing Ucspi-TCP #
+############################
+-------------------------------------------------------
+# cd /usr/local/src
+# tar zxf ucspi-tcp-0.88.tar.gz
+# cd ucspi-tcp-0.88
+# cp ../patch/* ./
+# patch -p1 < ucspi-tcp-0.88.a_record.patch
+# patch -p1 < ucspi-tcp-0.88.errno.patch
+# patch -p1 < ucspi-tcp-0.88.nodefaultrbl.patch
+# make
+# make setup check
+-------------------------------------------------------
+
+
+Now let's configure tcpserver. Create a script called tcprulesedit in /usr/local/bin and copy-paste the following:
+----------------------------------------------------
+vi /usr/local/bin/tcprulesedit
+----------------------------------------------------
+====================================================
+#!/bin/sh
+vi /etc/tcp.smtp
+/usr/local/bin/tcprules /etc/tcp.smtp.cdb \
+/etc/tcp.smtp.tmp < /etc/tcp.smtp
+====================================================
+This script will take care of creating and editing relay rules in qmail. You can substitute "vi" with your favorite editor, if you want to.
+
+As usual, make the script executable:
+----------------------------------------------------
+# chmod 755 /usr/local/bin/tcprulesedit
+# tcprulesedit
+----------------------------------------------------
+====================================================
+127.:allow,RELAYCLIENT="",RBLSMTPD="",QMAILQUEUE="/var/qmail/bin/qmail-queue"
+:allow,QMAILQUEUE="/var/qmail/bin/qmail-scanner-queue.pl"
+====================================================
+<AV>
+If you want every outgoing mail go be scaned, remove first line "127:allow,RELAYCLIENT="",RBLSMTPD="",QMAILQUEUE="/var/qmail/bin/qmail-queue""
+So all mail will go through qmail-scanner ^_^
+</AV>
+<Alert>
+If you are not planning to install qmail-scanner, you should remove the QMAILQUEUE definitions above. Of course, don't forget to get rid of all "," (commas) at the end of the lines as well.
+</Alert>
+
+##################################
+# [6] Moving on with Daemontools #
+##################################
+
+Daemontools installation differs from other installations, because you don't have to "configure" or "make" the package. A directory is created in your root structure, and all working files are placed there. Follow the instructions below to properly install Daemontools on your system.
+
+---------------------------------------------------------
+# mkdir -p /package
+# chmod 1755 /package
+# cd /package
+# mv /usr/local/src/daemontools-0.76.tar.gz /package
+# tar zxf daemontools-0.76.tar.gz
+# mv daemontools-0.76.tar.gz /usr/local/src
+# cd admin/daemontools-0.76
+# patch -p1 < daemontools-0.76.errno.patch
+# package/install
+---------------------------------------------------------
+
+###########################################
+# [7] Installing VMailMgr #
+###########################################
+
+---------------------------------------------------------
+# cd /usr/local/src
+# tar zxf vmailmgr-0.97.tar.gz
+# cd vmailmgr-0.97
+# ./configure
+# make
+# make install
+---------------------------------------------------------
+<Hey!>
+make a soft link at /usr/bin
+
+# cd /usr/bin
+# ln -s /usr/local/bin/vdeliver
+</Hey>
+---------------------------------------------------------
+#####################################
+# [7.1] Installing VMailMgr Tools   #
+#####################################
+
+---------------------------------------------------------
+# cd /usr/local/src
+# tar zxf vmailmgr-tools-0.2.tar.gz
+# cd vmailmgr-tools-0.2
+# patch -p0 < vmailmgr-tools-0.2.patch
+# make
+# ./installer
+---------------------------------------------------------
+
+##############################
+# [7.2] Configuring VMailMgr #
+##############################
+
+Apart from the main installation, we'll have to configure VMailMgr as well. This step is required for controlling user quotas, auto-responder and some
+other things.
+
+---------------------------------------------------------
+# mkdir /etc/vmailmgr
+# chmod 755 /etc/vmailmgr
+# cd /etc/vmailmgr
+# ln -s /etc/vmailmgr /usr/local/etc/vmailmgr
+# echo ./Maildir/ > default-maildir
+# echo maildir > maildir-arg-str
+# echo passwd > password-file
+# echo /tmp/.vmailmgrd > socket-file
+# echo users > user-dir
+# echo '#!/bin/sh' > vdeliver-predeliver
+# echo '/usr/local/bin/vcheckquota' >> vdeliver-predeliver
+# chmod 755 /etc/vmailmgr/*
+---------------------------------------------------------
+
+<Alert>
+  It's better to save the "passwd" and "users" into a hidden directory(e.g. ".qmailbox"), which reduces the risk of being removed by the sutpid users.
+</Alett>
+
+The directory /etc/vmailmgr is created for vmailmgr configuration files. The echo commands given above control the way vmailmgr will be handling directories and mail processing. Basically, we are telling vmailmgr that the password file for keeping users' passwords will be "passwd" and the directory that will contain individual user accounts will be "users". The "vdeliver-predeliver" lines will launch "vcheckquota", which will check a user's quota limits before delivering a message. You can change the above settings to fit your needs, but I would recommend using the default settings provided in this guide.
+
+Now, we are going to create a virtual domain:
+---------------------------------------------------------
+# useradd [USER]
+# passwd [USER]
+# echo [VIRTUAL DOMAIN]:[USER] >> /var/qmail/control/virtualdomains
+# su - [USER]
+$ vsetup
+$ vadduser [EMAIL USER]
+$ exit
+---------------------------------------------------------
+the maildir structure will be created at user's home directory. All user's information and email message will be stored in it.
+
+#############################
+# [8] Installing Relay-CTRL #
+#############################
+---------------------------------------------------------
+# cd /usr/local/src
+# tar zxf relay-ctrl-3.1.1.tar.gz
+# cd relay-ctrl-3.1.1
+# make
+# ./installer
+# mkdir /var/qmail/relay-ctrl
+# mkdir /var/qmail/relay-ctrl/allow
+# chmod 700 /var/qmail/relay-ctrl
+# chmod 777 /var/qmail/relay-ctrl/allow
+# mkdir /etc/relay-ctrl
+# echo /var/qmail/relay-ctrl/allow > /etc/relay-ctrl/RELAY_CTRL_DIR
+# echo 900 > /etc/relay-ctrl/expiry
+# echo /etc/tcp.smtp.cdb > /etc/relay-ctrl/smtpcdb
+# echo /var/qmail/relay-ctrl > /etc/relay-ctrl/spooldir
+# echo /usr/local/bin/tcprules > /etc/relay-ctrl/tcprules
+---------------------------------------------------------
+
+What are we doing here? After installing relay-ctrl, we are setting up "/var/qmail/relay-ctrl/allow" as the directory where temporary access files will be written. If a user with IP "100.100.100.10" is successfully authenticated, a file called "100.100.100.10" is created in this directory. The file will contain "USER=yourdomain.com" (yourdomain.com being the domain that the user belongs to). The user is now able to send messages but only for a specified amount of time (expiry). The expiry is located in /etc/relay-ctrl/expiry. In this guide, the expiry time is 900 seconds, which means that after 15 minutes the user will no longer be able to send messages through the mail server, unless he/she authenticates again.
+
+Also, don't forget to add the following cron job to your system. You can either put the line into /etc/crontab or create a file relay-ctrl in /etc/cron.d
+
+* * * * * root /usr/local/bin/envdir /etc/relay-ctrl /usr/local/bin/relay-ctrl-age
+
+Restart the cron daemon for changes to take effect.
+
+
+###################################################
+# [9] Preparing POP3 and SMTP startup environment #
+###################################################
+
+Create a file called runmail in /usr/local/bin and copy-paste the following script (again, use your favorite editor):
+-----------------------------------------------------
+# vi /usr/local/bin/runmail
+# chmod 755 /usr/local/bin/runmail
+-----------------------------------------------------
+====================================================================
+#!/bin/sh
+PATH="/var/qmail/bin:/usr/local/bin:/usr/local/sbin"
+export PATH
+cd /
+ 
+exec softlimit -m 50000000 \
+unixserver /tmp/.vmailmgrd vmailmgrd 2>&1 \
+| setuidgid qmaill \
+multilog t n100 s1000000 /var/qmail/logs/vmailmgrd & \
+ 
+exec softlimit -m 50000000 \
+envdir /etc/relay-ctrl relay-ctrl-chdir \
+tcpserver -v -H -R -l $HOSTNAME -x /etc/tcp.smtp.cdb \
+-c20 -u202 -g200 0 smtp rblsmtpd \
+ rblsmtpd -r sbl.spamhaus.org \
+fixcrio relay-ctrl-check qmail-smtpd 2>&1 \
+| setuidgid qmaill \
+multilog t n100 s1000000 /var/qmail/logs/smtp & \
+ 
+exec softlimit -m 50000000 \
+envdir /etc/relay-ctrl relay-ctrl-chdir \
+tcpserver -v -H -R -l $HOSTNAME -x /etc/tcp.smtp.cdb \
+-c20 -u0 -g0 0 110 qmail-popup localhost \
+checkvpw relay-ctrl-allow qmail-pop3d Maildir 2>&1 \
+| setuidgid qmaill \
+multilog t n100 s1000000 /var/qmail/logs/pop3 &
+====================================================================
+
+The above script will definitely confuse many of you. But don't worry, I am here to explain you what each line of the above code does :-) The script can be divided into three parts - the first one runs vmailmgr daemon, the second one runs an smtp server and the third one runs a pop3 server. Remember, that you'll be needing both smtp and pop3 servers if you want to be able to send and receive mail. The vmailmgr daemon is needed for web-based administration, which I will be covering in "oMail-admin" section below.
+
+Again, the first two lines specify the paths to executables to make our lives easier and our script smaller. The third line changes the directory to root. Softlimit -m 10000000 sets the maximum memory usage to 10MB. You can limit it to a smaller amount of memory, if you want to. Just make sure that the limit is reasonable - otherwise the program could simply fail to execute because of memory limitations. The next line executes vmailmgr daemon, which is needed if you want to be able to add/remove/modify mail users through a web interface. We run vmailmgrd through unixserver, which creates a socket and waits for incoming connections. All vmailmgrd connections are logged in /var/qmail/logs/vmailmgrd. The second part of the script runs an SMTP server. Again, we limit the memory usage to 10MB via softlimit. The envdir lines set the config directory to /etc/relay-ctrl for relay-ctrl. The next line starting with tcpserver is rather compicated. The "-v" switch given to tcpserver makes sure that all error and status messages are printed out (if they occur). The "-H" switch disables DNS lookups. We don't need to do DNS lookups, since our patched qmail already does that. The "-R" switch will stop tcpserver from attempting to obtain $TCPREMOTEINFO variable from remote hosts (we don't need it). The "-l $HOSTNAME" switch will force tcpserver not to lookup local host name in DNS (no need to resolve ourselves). The "-x /etc/tcp.smtp.cdb" switch forces tcpserver to follow the rules compiled by our tcprulesedit script. The "-c200" switch limits the maximum number of simultaneous connections to 200. The "-u5002" switch sets tcpserver user id to "qmaill" and "-g5000" sets group id to "nofiles". Next 0 and smtp simply tell tcpserver to listen on any available interface on port 25. The "rblsmtpd -b -r relays.ordb.org rblsmtpd -r sbl.spamhaus.org" command executes anti-spam filter for denying blacklisted servers on the Internet. If the first blacklist server fails, the second one (sbl.spamhaus.org) takes over. You can check whether your blacklist settings work by sending a test message to nelson-sbl-test@crynwr.com. If you receive only one message with "Terminating conversation" message at the end, settings are good to go. If you receive two messages with one saying "Uh-oh, your SBL block is not working!", it means that either the relay servers are unreachable at the moment or something is wrong with your settings. The "fixcrio" command will insert missing CRs at the end of messages. Some old mail servers send messages that contain bare linefeeds and fixcrio will deal with those. It's very unlikely that such servers exist, but adding this executable will make sure that we are not denying messages from some old non-blacklisted servers. The next "relay-ctrl-check" command checks if the mail user has already been authenticated. If /var/qmail/relay-ctrl/allow directory does not contain sender's IP address, the message is rejected with 553 error message "sorry, that domain isn't in my list of allowed rcpthosts". If everything is good and the user did authenticate before, the message is successfully delivered through "qmail-smtpd", which is the next command we are executing. The "setuidgid qmaill" makes multilog execute under "qmaill" user. I've already explained multilog switches above, so I will not go through that part again.
+
+The third part of the script deals with running a pop3 server on port 110. Just like we did for smtp server, we execute softlimit followed by envdir for relay-ctrl. This is needed because relay-ctrl must record authenticated user's IP address and domain into the temp allow directory. Next, we run tcpserver - only this time we execute it under "root" account (the -u0 and -g0 switches). Plus, we now specify port 110 to listen on instead of smtp (port 25). The next command "qmail-popup localhost" will read a POP username and password from the connecting client. You can either specify "localhost" or your fully qualified domain name after "qmail-popup". The next line starts with "checkvpw" which is the default password authentication utility for vmailmgr. So, all it does is - it checks whether the specified username and password are correct. Of course, if the authentication fails, checkvpw exits causing tcpserver to disconnect the user with a failure message. If the authentication is successful, the next command "relay-ctrl-allow" is executed. It will make sure that the user's IP address and domain are recorded into a temp file in relay-ctrl's allow directory. Next, "qmail-pop3d" is run, allowing the user to receive and delete his/her messages from the server. Once more, we are switching to "qmaill" user id for multilog and using /var/qmail/logs/pop3 log directory to log all pop3 connections.
+
+
+
+
+###################################
+# [10] Testing Qmail installation #
+###################################
+
+Before we go any further, let's make sure that everything we've done so far works properly. For that, we'll have to execute Qmail, POP3 and SMTP. Then, we will send and receive a couple of test messages. Only then will there be a point in continuing and completing qmail installation.
+
+-------------------------------------------------------------
+# /var/qmail/rc &
+# /usr/local/bin/runmail
+-------------------------------------------------------------
+
+<Alert>
+If you get a permission error with multilog, type "chown qmaill:nofiles /var/qmail/logs" and "chown qmaill:nofiles /var/qmail/logs/qmail". Kill running qmail with "killall qmail-lspawn" and then retry running the script with "/var/qmail/rc &".
+</Alert>
+
+
+Type ps ax | grep qmail in shell prompt. The command should return 8-9 different processes (qmail-send, qmail-rspawn, qmail-clean and etc). The output will look similar to this:
+
+    17295 pts/1    S      0:00 qmail-send
+    17296 pts/1    S      0:00 multilog t n100 s1000000 /var/qmail/logs/qmail
+    17297 pts/1    S      0:00 qmail-lspawn ./Maildir
+    17298 pts/1    S      0:00 qmail-rspawn
+    17299 pts/1    S      0:00 qmail-clean
+    17315 pts/1    S      0:00 multilog t n100 s1000000 /var/qmail/logs/vmailmgrd
+    25459 pts/1    S      0:00 multilog t n100 s1000000 /var/qmail/logs/smtp
+    25461 pts/1    S      0:00 multilog t n100 s1000000 /var/qmail/logs/pop3
+    25736 pts/1    S      0:00 grep qmail
+
+Now type ps ax | grep tcpserver again in shell prompt. The command should return only three lines. The output will look similar to this:
+
+    25458 pts/1    S      0:00 tcpserver -v -H -R -l server.com -x /etc/tcp.smtp.cdb...
+    25460 pts/1    S      0:00 tcpserver -v -H -R -l server.com -x /etc/tcp.smtp.cdb...
+    25801 pts/1    S      0:00 grep tcpserver
+
+
+#include </usr/include/mysql/mysql.h>
+
+
+#########################################
+# [11] Qmail-Autoresponder Installation #
+#########################################
+---------------------------------------------------
+# cd /usr/local/src
+# tar zxf qmail-autoresponder-0.97.tar.gz
+# cd qmail-autoresponder-0.97
+# vi options.c (*)
+# make
+# cp qmail-autoresponder /usr/local/bin
+# chmod 755 /usr/local/bin/qmail-autoresponder
+---------------------------------------------------
+
+(*) opps! qmail-autoresponder-0.97 have to find the mysql.h to compile, but you can't find any!
+    just "yum install mysql-devel" and change the include statment to "#include </usr/include/mysql/mysql.h>"
+
+Call qmail-autoresponder right after the delivery is successful:
+------------------------------------------------------------------------------------
+    # cd /etc/vmailmgr
+    # vi vdeliver-postdeliver
+    # chmod 755 vdeliver-postdeliver
+-------------------------------------------------------------------------------------
+===========================================================
+#!/bin/sh
+if test -s $MAILDIR/autoresponse/message.txt
+then
+  qmail-autoresponder message.txt $MAILDIR/autoresponse
+fi
+===========================================================
+
+
+##################################
+# [12] Courier-IMAP Installation #
+##################################
+
+------------------------------------------------
+# cd /usr/local/src
+# tar jxf courier-imap-3.0.8.tar.bz2
+# cd courier-imap-3.0.8
+# ./configure --disable-root-check --with-redhat
+# make
+# make install 
+------------------------------------------------
+ It takes a long time, enjoy it ^_^
+
+<Alert>
+On RedHat, Fedora Core, CentOS
+There will be compile problem on the authlib "/usr/include/stdio.h:385: error: syntax error before '&&' token".
+Solution : 
+  authstaticlistsearch.c
+  authmoduser3.c
+  mod.h
+  authtest.c
+  debug.c
+  authdaemon.c
+
+edit the above file under "authlib" and move 
+  #include "debug.h"
+to the last line of include
+</Alert>
+
+Courier-IMAP has its own authentication scheme which needs to be changed for our installation. This is what we need to do:
+
+----------------------------------------------------------------------------
+    # cd /usr/local/src/vmailmgr-0.97
+    # cp authenticate/authvmailmgr /usr/lib/courier-imap/libexec/authlib
+    # cd /usr/lib/courier-imap/etc
+    # cp imapd.dist imapd
+    # cp imapd-ssl.dist imapd-ssl
+    # vi imapd 
+----------------------------------------------------------------------------
+While editing the file imapd, change "MAXPERIP"(Maximum connections per IP) to 20. Then, change "AUTHMODULES" (Authentication modules) and "AUTHMODULES_ORIG" to "authvmailmgr relay-ctrl-allow". Save and close the file.
+
+Now do "cp authdaemonrc.dist authdaemonrc" and edit the file authdaemonrc, delete the line that says authmodulelist="authcustom........" and insert authmodulelist="authvmailmgr relay-ctrl-allow". Save and close the file.
+
+
+----------------------------------------------------------------------------
+# cd /usr/lib/courier-imap/libexec/authlib
+# mv authdaemond authdaemond.old
+# ln -s /usr/local/bin/relay-ctrl-allow relay-ctrl-allow
+# vi authdaemond
+# chmod 755 authdaemond
+---------------------------------------------------------------------------
+===========================================================================
+#!/bin/sh
+DIR=`dirname $0`
+AUTHDAEMOND=authdaemond.plain
+. /usr/lib/courier-imap/etc/authdaemonrc
+if test "$version" != ""
+then
+        AUTHDAEMOND="$version"
+fi
+============================================================================
+
+
+Now edit imapd.rc and make some minor changes to work with relay-ctrl:
+-----------------------------------------------------------------------------
+# vi /usr/lib/courier-imap/libexec/imapd.rc
+-----------------------------------------------------------------------------
+
+Search for "/usr/lib/courier-imap/libexec/couriertcpd -address=$ADDRESS" line and insert "/usr/local/bin/envdir /etc/relay-ctrl /usr/local/bin/relay-ctrl-chdir" above it. Thus, relay-ctrl will get initialized before "couriertcpd" is called.
+
+Let's run the IMAP server and see if it works fine:
+-------------------------------------------------------------------------------------------
+# /usr/lib/courier-imap/libexec/imapd.rc start
+# ps ax | grep courier
+1698 ?   S      0:00 /usr/lib/courier-imap/libexec/couriertcpd -address=0 -stderrlogger...
+1711 ?   S      0:00 /usr/lib/courier-imap/libexec/courierlogger imapd
+-------------------------------------------------------------------------------------------
+
+
+If it is done. The main installation is finished.
+
+
+##############################
+# [13] MailDrop Installation #
+##############################
+# yum install pcre-devel <-- header file needed
+--------------------------------------------------
+# cd /usr/local/src
+# tar jxf maildrop-2.0.4.tar.bz2
+# cd maildrop-2.0.4
+# ./configure
+# make
+# make install-strip
+# make install-man
+--------------------------------------------------
+
+
+##########################
+# [14] TNEF Installation #
+##########################
+
+Now TNEF unpacker. This program is used by Qmail-Scanner, which we will
+be installing later.
+
+--------------------------------------------------
+# cd /usr/local/src
+# tar zxf tnef-1.4.4.tar.gz
+# cd tnef-1.4.4
+# ./configure
+# make
+# make check
+# make install
+--------------------------------------------------
+
+
+##################################
+# [15] SpamAssassin Installation #
+##################################
+1. install by shell
+
+Installing SpamAssassin is very easy. You must have Perl installed and fully operational in order to be able to build and install SpamAssassin. If you prefer installing Perl modules from sources, get SpamAssassin source file from the location specified above and run the commands "perl Makefile.PL" "make" "make test" and "make install" respectively. Otherwise, my recommendation is to install from CPAN shell. Execute the following command in shell:
+
+    # perl -MCPAN -eshell
+    cpan shell -- CPAN exploration and modules installation (v1.63)
+    ReadLine support enabled
+     
+    cpan>
+
+After the command is executed, you'll be presented to the cpan prompt*. Just type install Mail::SpamAssassin and press Enter. Cpan will start downloading the sources from other servers and install SpamAssassin for you. If you get a dependency warning, accept the default "yes" and let cpan install whatever is needed.
+
+* If you've never used perl CPAN, you will be presented with a perl configuration script, which will ask some questions regarding the installation of CPAN module. Just accept the defaults and specify the closest location for your source downloads. When the process is complete, you should be able to type commands in the cpan prompt. Type install Bundle::CPAN to get and install the latest CPAN modules.
+
+If you get an error saying something like "Makefile:91: *** missing separator. Stop." in Redhat Linux 9, edit the file /etc/sysconfig/i18n and replace LANG="en_US.UTF-8" with LANG="en_US". This helped me to cure module installations.
+
+Furthermore, don't forget to install the following Perl Modules (from sources or CPAN):
+
+Time::HiRes
+DB_File
+Sys::Syslog
+
+2. install from source [download the latest version]
+------------------------------------------------------------------
+# tar jxvf Mail-SpamAssassin-3.0.3.tar.bz2
+# cd Mail-SpamAssassin-3.0.3
+# perl Makefile.PL
+# make
+# make install
+------------------------------------------------------------------
+
+Running Perl SpamAssassin on every mail call is expensive and inefficient which is why a separate "spamd" daemon written in C is included in SpamAssassin package. To get spamd up and running, we will have to first cd to the SpamAssassin source directory. If you have downloaded SpamAssassin and installed it from shell, type the following in shell prompt:
+
+------------------------------------------------------
+# cd /usr/local/src/Mail-SpamAssassin-3.0.3/spamd (may have to change to your current version)
+# cp spamc /usr/bin
+# cp spamd /usr/bin
+# chmod 755 /usr/bin/spam*
+# cp spamd/redhat-rc-script.sh /etc/rc.d/init.d/spamd
+# chmod 755 /etc/rc.d/init.d/spamd
+# chkconfig --add spamd
+# chkconfig spamd on
+# /etc/rc.d/init.d/spamd start
+Starting spamd: [  OK  ]
+------------------------------------------------------
+
+If you have installed from CPAN, then change the first line to "cd /root/.cpan/build/Mail-SpamAssassin-2.64/spamd".
+
+
+Now perform the last step to make spamassassin work under qmail-scanner:
+-------------------------------------------------------
+# cd /var/qmail
+# mkdir .spamassassin
+# chmod 700 .spamassassin
+# chown qmaill:qmail .spamassassin
+# cd .spamassassin
+# echo 'required_hits 5' > user_prefs
+-------------------------------------------------------
+
+
+
+Make sure that /etc/mail/spamassassin/local.cf exists (should be created during the install). If it doesn't, create it and copy-paste the following into the file:
+=======================================================
+required_hits 5
+rewrite_subject 1
+report_header 1
+use_terse_report 1
+=======================================================
+
+
+############################
+# [16] Clamav Installation #
+############################
+
+Install clamav for virus scan (find a new version please...)
+------------------------------------------------------
+# tar zxvf clamav-0.85.1.tar.gz
+# cd clamav-0.85.1
+# ./configure
+# make
+# make install
+------------------------------------------------------
+edit /usr/local/etc/freshclam.conf
+edit /usr/local/etc/clamd.conf
+
+------------------------------------------------------
+# touch /var/log/freshclam.log
+# chown clamav:clamav /var/log/freshclam.log
+# freshclam
+# clamd
+------------------------------------------------------
+* remember to run "/usr/local/sbin/clamd" on startup
+* set cron job to run "/usr/local/bin/freshclam" everyday
+
+
+
+###################################
+# [17] Qmail scanner Installation #
+###################################
+
+-----------------------------------------------------------------------
+# cd /usr/local/src
+# tar zxf qmail-scanner-2.04.tgz
+# cd qmail-scanner-2.04
+# groupadd qscand
+# useradd -c "Qmail-Scanner Account" -g qscand -s /bin/false qscand
+# ./configure --spooldir /var/qmail/qmailscan --qmaildir /var/qmail --admin login --domain yourserver.com --local-domains yourserver.com --install
+ 
+Building Qmail-Scanner 2.04...
+ 
+This script will search your system for the virus
+scanners it knows about, and will ensure that all
+external programs qmail-scanner-queue.pl uses are
+explicitly pathed for performance reasons.
+ 
+Continue? ([Y]/N)
+-----------------------------------------------------------------------
+
+Don't forget to change "login" to your login and "yourserver.com" to your default domain. Also change "domain.one.com,domain.two.com" to whatever other domains you have on your system. If you only have one domain, specify one and get rid of everything after comma. If you have more than two domains, don't forget to separate them with a "," (comma). Press enter afterwards and answer "Y" when it asks you to Continue.
+
+Qmail-Scanner should be able to detect "spamd" (SpamAssassin) and "clamdscan" (Antivirus) if you installed it. It will create directories under
+/var/qmail/qmailscan and change necessary file ownerships. Then, do the following:
+
+---------------------------------------------------------------------------------
+# /usr/local/bin/setuidgid qmaill "/var/qmail/bin/qmail-scanner-queue.pl" -g
+perlscanner: generate new DB file
+perlscanner: total of 9 entries.
+---------------------------------------------------------------------------------
+
+If the above doesn't work for you and produces an error, try changing "qmaill" to "qmailq". If changing to "qmailq" works, you'll most probably have to modify permissions for spamassassin and sophie as well. This is a weird behavior that I'm unable to figure out.
+
+Type /usr/local/bin/setuidgid qmaill "contrib/test_installation.sh -doit" and then check your e-mail. If you received three messages, everything is running properly :-) If you haven't received anything, view /var/qmail/qmailscan/qmail-queue.log for clues. If something fails and you are receiving a "451 qq temporary problem", check ownership and permissions for /var/qmail/qmailscan. The directory owner should be qmaill:qmail and permissions should be set to 770.
+
+Attention: In some cases, only changing ownership to qmailq:qmail will make qmail-scanner work. My recommendation is to always check the logs - most of the problems will be spotted from there.
+
+Change "$DEBUG=1" to "$DEBUG=0" in /var/qmail/bin/qmail-scanner-queue.pl - this will disable Qmail-Scanner's dumping of every single message delivery process to qmail-queue.log. Furthermore, if you want messages identified as spam to be "seen" as spam messages (very useful for filtering mail), find the line "my $spamc_subject='';" and change it to "my $spamc_subject='POTENTIAL SPAM:';". You could then setup your email client to deliver messages with words "POTENTIAL SPAM" to other mailboxes or automatically move them to trash. Sweet huh?
+
+<Alert>
+Premission problem:
+There maybe some premission problem, check the logs if you can't send/get emails
+
+Memory problem:
+If "out of memory" sth is are found on the logs, try to modify the "runmail" script to increase the memory 5-6mb for a message is recommended.
+</Alert>
+
+-----------------------------------------------------------------------------------------------------------------
+<##setting##>
+in /var/qmail/bin/qmail-scanner-queue.pl :
+
+Change "$DEBUG=1" to "$DEBUG=0" <-- disable log
+$spamc_subject='[I'm Spam mail]'; <-- add string the the subject for spam
+$sa_quarantine_over='5'; <-- if greater than ZERO, the (spam score - required_hits) > $sa_quarantine_over will be quarantined.
+-----------------------------------------------------------------------------------------------------------------
+
+</##setting##>
+
+########################
+# [18] Startup Setting #
+########################
+-----------------------------------------------------------------------
+# echo '# Qmail and other stuff' >> /etc/rc.d/rc.local
+# echo '/var/qmail/rc &' >> /etc/rc.d/rc.local
+# echo '/usr/local/bin/runmail' >> /etc/rc.d/rc.local
+# echo '/usr/lib/courier-imap/libexec/imapd.rc start' >> /etc/rc.d/rc.local
+-----------------------------------------------------------------------
+
+copy script: (under "script" directory)
+-----------------------------------------------------------------------
+# cp qmail /etc/rc.d/init.d
+# cp courier /etc/rc.d/init.d
+# cp tcpserver /etc/rc.d/init.d
+# chmod 755 /etc/rc.d/init.d/qmail
+# chmod 755 /etc/rc.d/init.d/courier
+# chmod 755 /etc/rc.d/init.d/tcpserver
+# chkconfig --add qmail
+# chkconfig --add courier
+# chkconfig --add tcpserver
+# chkconfig qmail on
+# chkconfig courier on
+# chkconfig tcpserver on
+-----------------------------------------------------------------------
+
+#####################
+# [19] SquirrelMail #
+#####################
+
+Using CentOS rpm is not a good idea. Download the new version from http://www.squirrelmail.org/.
+
+
+
+###################
+# [20] User Admin #
+###################
+Two solution...
+1.) omail <--- too old... so I choose...
+2.) vadmin plugin of SquirrelMail
+
+download vadmin-1.9.3.tar.gz decompress it, and move to /usr/share/squirrelmail/plugins/vadmin
+
+Vadmin setting:
+vadmin.conf
+=======================================================================
+[storage]
+    type = dba
+    flavor = db4    <-- change it from default
+    suffix = .db4
+    dir = /var/lib/vadmin
+
+[auth]
+    method = user
+    force_https = no
+    elvis = admin@yourdomain.net  <-- the super admin user of all virtual domain
+
+=======================================================================
+
+apache.conf (httpd config, copy and rename to /etc/httpd/conf.d/vadmin-httpd.conf)
+=======================================================================
+<Directory "/usr/share/squirrelmail">
+ SetEnv CRYPTO_HASH_LINE "RANDOM HASH CODE HERE"
+ SetEnv MCRYPT_ALGO "rc4_builtin"
+</Directory>
+
+=======================================================================
+
+add the last line into /usr/share/squirrelmail/plugins/vadmin/includes/vmail.inc
+=======================================================================
+function vm_daemon_raw($args){
+    $cfgfile = '/etc/vmailmgr/socket-file';
+        if (file_exists($cfgfile)){
+                $socketfile = file($cfgfile);
+        $socketfile = trim($socketfile[0]);
+    } else {
+        $socketfile = '/tmp/.vmailmgrd';
+    }
+
+    // PHP problem, add "unix://" in front of it...
+    $socketfile = "unix://".$socketfile;
+
+=======================================================================
+
+
+
+
+###############################
+#       FAQ & Problems        #
+###############################
+
+
+1.) Why there are so many processes of "qmail-scanner-queue.pl" ?
+
+ANS :
+  "yourdomain.com" should be added to "me", "defaultdomain", under /var/qmail/control
+
+2.) I can't get email, but the qmail-scanner works, why?
+
+ANS :
+  Make sure the user home directory is NOT writtable to others.
+
+3.) If another installation guide is used before, read ".qmail-default" in user's directory, make links of the program used. Otherwise the mail server may not get any emails.
+
+
+
+
